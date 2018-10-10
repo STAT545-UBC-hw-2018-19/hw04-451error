@@ -1,0 +1,179 @@
+---
+title: "hm04"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load packages
+
+```{r message=FALSE}
+library(gapminder)
+library(tidyverse)
+library(knitr)
+```
+
+
+
+
+# Cheatsheet for dplyr join functions
+
+## The data
+
+I used the data found [here](https://www.kaggle.com/unsdsn/world-happiness/). This is The World Happiness Report is a survey of scores based on data from the Gallup World Poll. More details about the dataset can be found [here](https://www.kaggle.com/unsdsn/world-happiness/home)
+
+```{r join_data}
+happy_2016 = read_csv("2016.csv")
+happy_2017 = read_csv("2017.csv")
+```
+
+```{r data view columns}
+names(happy_2016)
+names(happy_2017)
+```
+
+We can see that there are tables where the corresponding columns are named the same, so we first update the column names:
+
+```{r rename}
+happy_2017 = happy_2017 %>% 
+  rename(`Happiness Rank`=`Happiness.Rank`,
+         `Happiness Score`=`Happiness.Score`,
+         `Upper Confidence Interval`=`Whisker.high`,
+         `Lower Confidence Interval`=`Whisker.low`,
+         `Health (Life Expectancy)`=`Health..Life.Expectancy.`,
+         `Economy (GDP per Capita)` = `Economy..GDP.per.Capita.`,
+         `Trust (Government Corruption)`=`Trust..Government.Corruption.`,
+         `Dystopia Residual`=`Dystopia.Residual`)
+```
+
+
+#left_join
+
+We see that `happy_2017` does not have a "Region" variable. We can create a "Region" table from the `happy_2016` data and use `left_join` to pull in the "Region" in the 2017 data:
+
+```{r left_join}
+region = happy_2016 %>% 
+  select(Country,Region)
+
+(happy_2017_with_region = happy_2017 %>% 
+  left_join(region,by="Country"))
+```
+
+## inner_join
+
+We can try to use `inner_join` on the same two tables but this will give a different result:
+
+```{r inner_join}
+happy_2017 %>% 
+  inner_join(region,by="Country")
+```
+
+We see that we lost a few results. There are countries in `region` not on `happy_2017` and countries in `happy_2017` that are not in `region`; `inner_join` removes all these results whereas `left_join` kept all columns from `happy_2017`. We can see which countries in `happy_2017` that were not in `region` using masking:
+
+```{r not in region}
+happy_2017_with_region[is.na(happy_2017_with_region$Region),]
+```
+
+However, there is also a simpler way of getting this result using `dplyr` as can be seen in the next section.
+
+## anti_join
+
+> `anti_join(x,y)` returns all rows from `x` where there are not matching values in `y`, keeping just columns from `x`
+
+We can use `anti_join` to find the countries in `happy_2017` but not in `region`:
+
+```{r anti_join}
+happy_2017 %>% 
+  anti_join(region,by='Country')
+```
+
+Similarly, we can find the countries in `region` but not in `happy_2017`:
+
+```{r anti_join 2}
+region %>% 
+  anti_join(happy_2017,by="Country")
+```
+
+From this, we see that there are entries in the Country column that were not consistently named from previous years, such as Taiwan and Hong Kong. We can update this using `if_else`:
+
+```{r update country names}
+happy_2017$Country = if_else(happy_2017$Country == "Taiwan Province of China","Taiwan",happy_2017$Country)
+
+happy_2017$Country = if_else(happy_2017$Country == "Hong Kong S.A.R., China","Hong Kong",happy_2017$Country)
+```
+
+After this update, we should have fewer entries when we call `anti_join`:
+
+```{r anti_join again}
+happy_2017 %>% 
+  anti_join(region,by='Country')
+```
+
+## semi_join
+
+`semi_join` is similar to `left_join`, but where `left_join(x,y)` will return a row from `x` for each match in `y`, `semi_join(x,y)` will only return one row of `x`. `semi_join` also filters out rows in `x` where there is no match in `y`
+
+```{r semi_join}
+happy_2017 %>% 
+  semi_join(region,by="Country")
+```
+
+We see that fewer results than when we used `left_join`. We can see the countries that are missing are Mozambique, Lesotho, and Central African Republic, which correspond to the last `anti_join` call.
+
+## full_join
+
+If we want to keep all the countries in both datasets, we would use `full_join`:
+
+```{r}
+full_join(happy_2017,region)
+```
+
+Where there are no matching values, `NA` is filled in the corresponding columns.
+
+# Data Reshaping cheatsheet
+
+I will use the same dataset that was imported above.
+
+## filter
+
+Filter is used to select desired rows in our data based on specified criteria. Let's look at the top 10 happiest countries in 2017 based on the happiness index using `filter`:
+
+```{r filter}
+happy_2017 %>% 
+  filter(`Happiness Rank` <= 10)
+```
+
+## select()
+
+Select is used to choose specific columns of our dataset. This is a contrast from `filter` as `filter` chooses rows.
+
+```{r select}
+happysubset = happy_2017 %>%
+  mutate(year=rep(2017,nrow(happy_2017))) %>% 
+  bind_rows(happy_2016 %>% mutate(year=rep(2016,nrow(happy_2016)))) %>% 
+  select(Country,`Happiness Rank`,year)
+```
+
+## spread
+
+Spread takes values from a column and converts it into multiple columns.
+
+```{r}
+happysubset = happysubset %>% 
+  left_join(region,by="Country")
+
+wide_happysubset = happysubset %>% 
+  spread(key = 'year', value = `Happiness Rank`)
+wide_happysubset
+```
+
+## gather
+
+Given a data in a wide form, we would like to put it in a tidy form, where each column represents a variable and each row contains the value of the variable. We use the `wide_happysubset` defined above to illustrate this function:
+
+```{r}
+wide_happysubset %>% 
+  gather(key = 'Year',value = `Happiness Rank`,3:4)
+```
